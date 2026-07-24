@@ -24,9 +24,10 @@ jobs:
 
       - name: Build
         run: |
+          GIT_HASH=$(git rev-parse --short HEAD)
           make CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang \
                NATIVE="" \
-               CFLAGS="-g -std=gnu11 -funroll-loops -O3 -fno-exceptions -DIS_64BIT -DNDEBUG -Wall -Wextra -Wno-error=vla -Wpedantic -Wno-unused-command-line-argument -DUSE_NEON -DUSE_SIMD -flax-vector-conversions -DUSE_NEON_DOTPROD -DNETWORK_NAME=\\\"net55.nnue\\\" -DEVALFILE=\\\"processed.bin\\\" --target=aarch64-linux-android28 -march=armv8.2-a+dotprod -static-libstdc++"
+               CFLAGS="-g -std=gnu11 -funroll-loops -O3 -fno-exceptions -DIS_64BIT -DNDEBUG -Wall -Wextra -Wno-error=vla -Wpedantic -Wno-unused-command-line-argument -DUSE_NEON -DUSE_SIMD -flax-vector-conversions -DUSE_NEON_DOTPROD -DGIT_HASH=\\\"$GIT_HASH\\\" -DNETWORK_NAME=\\\"net55.nnue\\\" -DEVALFILE=\\\"processed.bin\\\" --target=aarch64-linux-android28 -march=armv8.2-a+dotprod -static-libstdc++"
 
       - name: List build output
         run: |
