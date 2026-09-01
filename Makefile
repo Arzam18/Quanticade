@@ -1,4 +1,4 @@
-NETWORK_NAME = net55.nnue
+NETWORK_NAME = net59.nnue
 PROCESSED_NET = processed.bin
 _THIS       := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 _ROOT       := $(_THIS)
@@ -28,19 +28,13 @@ NNUE_URL := https://github.com/Quanticade/Networks/raw/refs/heads/main/$(EVALFIL
 CURL := $(shell command -v curl 2>/dev/null)
 WGET := $(shell command -v wget 2>/dev/null)
 
-GCC_VERSION := $(shell gcc -dumpfullversion 2>/dev/null)
-
-ifeq ($(GCC_VERSION),12.2.0)
-    $(error "Build aborted: GCC version 12.2.0 is strictly unsupported.")
-endif
-
 # Detect Clang
 ifeq ($(CC), clang)
 	CFLAGS = -g -std=gnu11 -fuse-ld=lld -funroll-loops -O3 -flto -fno-exceptions -DIS_64BIT -DNDEBUG -DGIT_HASH=\"$(shell git rev-parse --short HEAD)\" $(WARNINGS)
 endif
 
 # ENABLE WHEN TUNING
-# CFLAGS += -DTUNE
+#CFLAGS += -DTUNE
 
 # Detect Windows
 ifeq ($(OS), Windows_NT)
@@ -227,13 +221,13 @@ endif
 
 ifneq ($(findstring gcc, $(CC)),)
 	PGOGEN   = -fprofile-generate
-	PGOUSE   = -fprofile-use
+	PGOUSE   = -fprofile-use -Wno-error=coverage-mismatch -Wno-error=missing-profile
 endif
 
 ifneq ($(findstring clang, $(CC)),)
 	PGOMERGE = llvm-profdata merge -output=quanticade.profdata *.profraw
 	PGOGEN   = -fprofile-instr-generate
-	PGOUSE   = -fprofile-instr-use=quanticade.profdata
+	PGOUSE   = -fprofile-instr-use=quanticade.profdata -Wno-error=profile-instr-out-of-date -Wno-error=profile-instr-missing
 endif
 
 # Add network name and Evalfile
@@ -249,6 +243,8 @@ OBJECTS := $(patsubst %.c,$(TMPDIR)/%.o,$(SOURCES))
 DEPENDS := $(patsubst %.c,$(TMPDIR)/%.d,$(SOURCES))
 
 EXE	    := $(NAME)$(SUFFIX)
+
+.PHONY: all clean pgo
 
 $(EVALFILE):
 	@echo "NNUE network '$(EVALFILE)' not found."
@@ -272,7 +268,7 @@ $(OBJECTS): | $(PROCESSED_NET)
 
 all: $(TARGET)
 clean:
-	@rm -rf $(TMPDIR) *.o *.d $(TARGET) $(PROCESSED_NET) Tools/process_net
+	@rm -rf $(TMPDIR) *.o *.d $(TARGET) $(PROCESSED_NET) Tools/process_net *.gcda *.profraw *.profdata
 
 $(TARGET): $(OBJECTS)
 	$(CC) $(CFLAGS) $(NATIVE) -MMD -MP -o $(EXE) $^ $(FLAGS)
@@ -286,8 +282,9 @@ $(TMPDIR):
 
 # Usual disservin yoink for makefile related stuff
 pgo: $(PROCESSED_NET)
-	$(CC) $(CFLAGS) $(PGO_GEN) $(NATIVE) $(INSTRUCTIONS) -MMD -MP -o $(EXE) $(SOURCES) -lm $(LDFLAGS)
+	@rm -f *.gcda *.profraw *.profdata
+	$(CC) $(CFLAGS) $(PGOGEN) $(NATIVE) $(INSTRUCTIONS) -MMD -MP -o $(EXE) $(SOURCES) $(FLAGS) $(LDFLAGS)
 	./$(EXE) bench
-	$(PGO_MERGE)
-	$(CC) $(CFLAGS) $(NATIVE) $(INSTRUCTIONS) $(PGO_USE) -MMD -MP -o $(EXE) $(SOURCES) -lm $(LDFLAGS)
-	@rm -f *.gcda *.profraw *.o *.d  profdata
+	$(PGOMERGE)
+	$(CC) $(CFLAGS) $(NATIVE) $(INSTRUCTIONS) $(PGOUSE) -MMD -MP -o $(EXE) $(SOURCES) $(FLAGS) $(LDFLAGS)
+	@rm -f *.gcda *.profraw *.o *.d *.profdata

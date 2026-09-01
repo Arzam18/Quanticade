@@ -4,17 +4,18 @@
 #include "arch.h"
 #include "bitboards.h"
 #include <stdint.h>
+#include <stddef.h>
 
 #define MAX_PLY 254
 
 typedef struct spsa {
   void *value;
   union {
-    uint64_t min_int;
+    int64_t min_int;
     double min_float;
   } min;
   union {
-    uint64_t max_int;
+    int64_t max_int;
     double max_float;
   } max;
   double rate;
@@ -52,7 +53,7 @@ typedef struct moves {
 } moves;
 
 typedef struct keys {
-  uint64_t piece_keys[12][64];
+  uint64_t piece_keys[13][64];
   uint64_t enpassant_keys[64];
   uint64_t castle_keys[16];
   uint64_t side_key;
