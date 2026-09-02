@@ -423,8 +423,7 @@ static inline uint16_t select_next(picker_t *picker) {
   case STAGE_TABLE:
     picker->stage = STAGE_GENERATE_NOISY;
     if (picker->tt_move != 0 &&
-        (picker->generate_all || get_move_capture(picker->tt_move) ||
-         is_move_promotion(picker->tt_move)) &&
+        (picker->generate_all || is_noisy(picker->tt_move)) &&
         is_pseudo_legal(pos, picker->tt_move) && is_legal(pos, picker->tt_move))
       return picker->tt_move;
     /* fallthrough */
@@ -794,7 +793,7 @@ static inline int16_t negamax(thread_t *thread, searchstack_t *ss,
   if (!ss->excluded_move && !pv_node && tt_depth >= depth &&
       can_use_score(alpha, beta, tt_score, tt_flag)) {
     if (tt_move != 0 &&
-        !(is_move_promotion(tt_move) || get_move_capture(tt_move)) &&
+        is_quiet(tt_move) &&
         tt_score >= beta) {
       int16_t bonus =
           MIN(QUIET_HISTORY_MAX_TT,
@@ -1126,8 +1125,7 @@ static inline int16_t negamax(thread_t *thread, searchstack_t *ss,
   // loop over moves within a movelist
   uint16_t move;
   while ((move = select_next(&picker)) != 0) {
-    uint8_t quiet =
-        (get_move_capture(move) == 0 && is_move_promotion(move) == 0);
+    uint8_t quiet = is_quiet(move);
 
     if (move == ss->excluded_move) {
       continue;
@@ -1266,7 +1264,7 @@ static inline int16_t negamax(thread_t *thread, searchstack_t *ss,
 
       R = R / 1024;
       int reduced_depth =
-          MAX(1, MIN(new_depth - R, new_depth + cutnode)) + pv_node;
+          MAX(1, MIN(new_depth - R, new_depth + 1)) + pv_node;
 
       score = -negamax(thread, ss + 1, -alpha - 1, -alpha, reduced_depth, 1,
                        NON_PV);

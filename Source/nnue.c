@@ -228,6 +228,20 @@ void nnue_init(void) {
 #endif
 }
 
+static inline void chunk_copy_to(void* dest, vec_s16 chunk[static CHUNK_SIZE]) {
+#pragma GCC unroll 16
+  for (int i = 0; i < CHUNK_SIZE; i++) {
+    ((vec_s16*)dest)[i] = chunk[i];
+  }
+}
+
+static inline void chunk_copy_from(vec_s16 chunk[static CHUNK_SIZE], void* src) {
+#pragma GCC unroll 16
+  for (int i = 0; i < CHUNK_SIZE; i++) {
+    chunk[i] = ((const vec_s16*)src)[i];
+  }
+}
+
 static inline int16_t get_idx(uint8_t side, uint8_t piece, uint8_t square,
                               uint8_t king_square, uint8_t force_hm,
                               uint8_t mirror) {
@@ -327,7 +341,7 @@ void rebuild_threats(position_t *pos, uint8_t *mailbox, accumulator_t *acc) {
         }
       }
 
-      memcpy(&acc->threat_accumulator[white][i], vecs, sizeof(vecs));
+      chunk_copy_to(&acc->threat_accumulator[white][i], vecs);
     }
   } else
     for (int i = 0; i < L1_SIZE; ++i)
@@ -354,7 +368,7 @@ void rebuild_threats(position_t *pos, uint8_t *mailbox, accumulator_t *acc) {
         }
       }
 
-      memcpy(&acc->threat_accumulator[black][i], vecs, sizeof(vecs));
+      chunk_copy_to(&acc->threat_accumulator[black][i], vecs);
     }
   } else
     for (int i = 0; i < L1_SIZE; ++i)
@@ -366,7 +380,7 @@ typedef struct psqt_list_s {
   unsigned indices[32];
 } psqt_list_t;
 
-static inline void refresh_accumulator(thread_t *thread, position_t *pos,
+static inline void refresh_accumulator(thread_t *thread, lazy_acc_state_t *pos,
                                        accumulator_t *accumulator) {
   const uint8_t side = pos->side ^ 1;
   const uint8_t king_square = get_lsb(pos->bitboards[side == white ? K : k]);
@@ -386,7 +400,7 @@ static inline void refresh_accumulator(thread_t *thread, position_t *pos,
 
     while (added) {
       const uint8_t square = get_lsb(added);
-      pop_bit(added, square);
+      pop_lowest(added);
       const size_t index = get_idx(side, piece, square, king_square, 0, 0);
 
       added_list.indices[added_list.count++] = index;
@@ -394,7 +408,7 @@ static inline void refresh_accumulator(thread_t *thread, position_t *pos,
 
     while (removed) {
       const uint8_t square = get_lsb(removed);
-      pop_bit(removed, square);
+      pop_lowest(removed);
       const size_t index = get_idx(side, piece, square, king_square, 0, 0);
 
       removed_list.indices[removed_list.count++] = index;
@@ -403,7 +417,7 @@ static inline void refresh_accumulator(thread_t *thread, position_t *pos,
 
   for (int i = 0; i < L1_SIZE; i += CHUNK_SIZE * CHUNK_ELTS) {
     vec_s16 vecs[CHUNK_SIZE];
-    memcpy(vecs, &finny_accumulator->psqt_accumulator[side][i], sizeof(vecs));
+    chunk_copy_from(vecs, &finny_accumulator->psqt_accumulator[side][i]);
 
     for (int j = 0; j < added_list.count; ++j) {
       const vec_s16* m = (const vec_s16 *)&nnue->feature_weights[bucket][added_list.indices[j]][i];
@@ -415,18 +429,17 @@ static inline void refresh_accumulator(thread_t *thread, position_t *pos,
 
     for (int j = 0; j < removed_list.count; ++j) {
       const vec_s16* m = (const vec_s16 *)&nnue->feature_weights[bucket][removed_list.indices[j]][i];
+#pragma GCC unroll 16
       for (int k = 0; k < CHUNK_SIZE; ++k) {
         vecs[k] -= *m++;
       }
     }
 
-    memcpy(&finny_accumulator->psqt_accumulator[side][i], vecs, sizeof(vecs));
-    memcpy(&accumulator->psqt_accumulator[side][i], vecs, sizeof(vecs));
+    chunk_copy_to(&finny_accumulator->psqt_accumulator[side][i], vecs);
+    chunk_copy_to(&accumulator->psqt_accumulator[side][i], vecs);
   }
 
   memcpy(finny_bitboards, pos->bitboards, 12 * sizeof(uint64_t));
-
-  rebuild_threats(pos, pos->mailbox, accumulator);
 }
 
 void init_accumulator(position_t *pos, accumulator_t *accumulator) {
@@ -456,7 +469,7 @@ void init_accumulator(position_t *pos, accumulator_t *accumulator) {
         accumulator->psqt_accumulator[black][i] +=
             nnue->feature_weights[black_bucket][black_idx][i];
 
-      pop_bit(bitboard, square);
+      pop_lowest(bitboard);
     }
   }
   rebuild_threats(pos, pos->mailbox, accumulator);
@@ -484,7 +497,7 @@ void init_accumulator_bucket(position_t *pos, accumulator_t *accumulator,
         accumulator->psqt_accumulator[black][i] +=
             nnue->feature_weights[bucket][black_idx][i];
 
-      pop_bit(bitboard, square);
+      pop_lowest(bitboard);
     }
   }
   rebuild_threats(pos, pos->mailbox, accumulator);
@@ -533,7 +546,7 @@ int nnue_eval_pos(position_t *pos, accumulator_t *accumulator) {
         accumulator->psqt_accumulator[black][i] +=
             nnue->feature_weights[black_bucket][black_idx][i];
 
-      pop_bit(bitboard, square);
+      pop_lowest(bitboard);
     }
   }
 
@@ -1153,7 +1166,7 @@ static void apply_threat_batches(accumulator_t *acc, const accumulator_t* acc_be
   for (int i = 0; i < L1_SIZE; i += CHUNK_SIZE * CHUNK_ELTS) {
     {
       vec_s16 w_vecs[CHUNK_SIZE];
-      memcpy(w_vecs, w_acc_before + i, sizeof(w_vecs));
+      chunk_copy_from(w_vecs, w_acc_before + i);
 
       for (int j = 0; j < adds->w_count; ++j) {
         const vec_s8* m = (const vec_s8 *)&nnue->feature_threats[adds->w_idx[j]][i];
@@ -1172,12 +1185,12 @@ static void apply_threat_batches(accumulator_t *acc, const accumulator_t* acc_be
         }
       }
 
-      memcpy(w_acc + i, w_vecs, sizeof(w_vecs));
+      chunk_copy_to(w_acc + i, w_vecs);
     }
 
     {
       vec_s16 b_vecs[CHUNK_SIZE];
-      memcpy(b_vecs, b_acc_before + i, sizeof(b_vecs));
+      chunk_copy_from(b_vecs, b_acc_before + i);
       for (int j = 0; j < adds->b_count; ++j) {
         const vec_s8* m = (const vec_s8 *)&nnue->feature_threats[adds->b_idx[j]][i];
 #pragma GCC unroll 16
@@ -1196,15 +1209,15 @@ static void apply_threat_batches(accumulator_t *acc, const accumulator_t* acc_be
         }
       }
 
-      memcpy(b_acc + i, b_vecs, sizeof(b_vecs));
+      chunk_copy_to(b_acc + i, b_vecs);
     }
   }
 }
 
 static inline uint64_t get_piece_attacks_fast(int pc, int sq, uint64_t occ) {
   switch (pc) {
-  case P: return (sq >= 8 && sq <= 55) ? get_pawn_attacks(white, sq) : 0;
-  case p: return (sq >= 8 && sq <= 55) ? get_pawn_attacks(black, sq) : 0;
+  case P: return get_pawn_attacks(white, sq);
+  case p: return get_pawn_attacks(black, sq);
   case N: case n: return get_knight_attacks(sq);
   case B: case b: return get_bishop_attacks(sq, occ);
   case R: case r: return get_rook_attacks(sq, occ);
@@ -1335,30 +1348,7 @@ void apply_accumulator(thread_t *thread, int ply) {
   lazy_acc_state_t *s = &thread->lazy[ply];
 
   if (s->psqt_needs_refresh) {
-    position_t tmp;
-    tmp.side = s->side;
-    memcpy(tmp.bitboards, s->bitboards, 12 * sizeof(uint64_t));
-    tmp.occupancies[white] = tmp.bitboards[P] | tmp.bitboards[N] |
-                             tmp.bitboards[B] | tmp.bitboards[R] |
-                             tmp.bitboards[Q] | tmp.bitboards[K];
-    tmp.occupancies[black] = tmp.bitboards[p] | tmp.bitboards[n] |
-                             tmp.bitboards[b] | tmp.bitboards[r] |
-                             tmp.bitboards[q] | tmp.bitboards[k];
-    tmp.occupancies[both] = tmp.occupancies[white] | tmp.occupancies[black];
-
-    memset(tmp.mailbox, 12, 64);
-    for (int i = 0; i < 12; i++) {
-      uint64_t bb = s->bitboards[i];
-      while (bb)
-        tmp.mailbox[poplsb(&bb)] = i;
-    }
-
-    refresh_accumulator(thread, &tmp, &thread->accumulator[ply]);
-
-    uint8_t opp = s->color_flag;
-    memcpy(thread->accumulator[ply].psqt_accumulator[opp],
-           thread->accumulator[ply - 1].psqt_accumulator[opp],
-           L1_SIZE * sizeof(int16_t));
+    refresh_accumulator(thread, s, &thread->accumulator[ply]);
 
     accumulator_make_move(
         &thread->accumulator[ply], &thread->accumulator[ply - 1],
@@ -1371,7 +1361,7 @@ void apply_accumulator(thread_t *thread, int ply) {
         s->side, s->move, s->moving_piece, s->captured_piece, both);
   }
 
-  if (s->threat_needs_refresh) {
+  if (s->threat_needs_refresh || s->psqt_needs_refresh) {
     rebuild_threats(&thread->positions[ply], thread->positions[ply].mailbox,
                     &thread->accumulator[ply]);
   } else {
