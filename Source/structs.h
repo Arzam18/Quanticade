@@ -46,11 +46,17 @@ typedef struct move {
   uint16_t move;
 } move_t;
 
-// move list structure
+// scored move list structure
 typedef struct moves {
   move_t entry[280];
   uint32_t count;
 } moves;
+
+// unscored move list structure
+typedef struct unscored_moves {
+  uint16_t entry[280];
+  uint32_t count;
+} unscored_moves;
 
 typedef struct keys {
   uint64_t piece_keys[13][64];
@@ -77,8 +83,8 @@ typedef struct finny_table {
 } finny_table_t;
 
 typedef struct {
-  int w_idx[256];
-  int b_idx[256];
+  int w_idx[384];
+  int b_idx[384];
   int w_count;
   int b_count;
 } threat_list_t;
