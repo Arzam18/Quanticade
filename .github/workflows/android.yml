@@ -2,6 +2,11 @@ name: Quanticade
 
 on:
   workflow_dispatch:
+    inputs:
+      uci_date:
+        description: "UCI version date (YYYYMMDD)"
+        required: true
+        default: "20260918"
 
 permissions:
   contents: write
@@ -17,6 +22,33 @@ jobs:
           wget -q https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
           unzip -q android-ndk-r26d-linux.zip
           echo "ANDROID_NDK_HOME=$PWD/android-ndk-r26d" >> $GITHUB_ENV
+
+      - name: Set UCI version
+        env:
+          UCI_DATE: ${{ inputs.uci_date }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          date = os.environ["UCI_DATE"]
+
+          for path in Path(".").rglob("*.h"):
+              try:
+                  text = path.read_text()
+              except UnicodeDecodeError:
+                  continue
+
+              old = '#define version "Phoenix 4.0 Dev " GIT_HASH'
+              new = f'#define version "{date}"'
+
+              if old in text:
+                  path.write_text(text.replace(old, new, 1))
+                  print(f"Patched: {path}")
+                  break
+          else:
+              raise SystemExit("ERROR: Quanticade version definition was not found.")
+          PY
 
       - name: Patch process_net to use host compiler
         run: |
